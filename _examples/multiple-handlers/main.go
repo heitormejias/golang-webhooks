@@ -5,7 +5,7 @@ import (
 
 	"net/http"
 
-	"github.com/go-playground/webhooks/v6/github"
+	"github.com/heitormejias/golang-webhooks/github"
 )
 
 const (
