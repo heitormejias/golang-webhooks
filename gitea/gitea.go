@@ -173,9 +173,6 @@ func (hook Webhook) Parse(r *http.Request, events ...Event) (interface{}, error)
 
 		expectedMAC := hex.EncodeToString(mac.Sum(nil))
 
-		fmt.Println("signature: ", signature)
-		fmt.Println("expectedMAC: ", expectedMAC)
-
 		if !hmac.Equal([]byte(signature), []byte(expectedMAC)) {
 			return nil, ErrHMACVerificationFailed
 		}
