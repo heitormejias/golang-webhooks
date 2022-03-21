@@ -117,7 +117,6 @@ func (hook Webhook) Parse(r *http.Request, events ...Event) (interface{}, error)
 		return nil, ErrParsingPayload
 	}
 
-	fmt.Println("hook.secret: ", hook.secret)
 	// If we have a Secret set, we should check the MAC
 	if len(hook.secret) > 0 {
 		signature := r.Header.Get("X-Gogs-Signature")

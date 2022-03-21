@@ -1,6 +1,9 @@
 package gitea
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,13 +19,15 @@ const (
 
 // parse errors
 var (
-	ErrEventNotSpecifiedToParse     = errors.New("no Event specified to parse")
-	ErrInvalidHTTPMethod            = errors.New("invalid HTTP Method")
-	ErrMissingGiteaEventHeader      = errors.New("missing X-Gitea-Event Header")
-	ErrGiteaTokenVerificationFailed = errors.New("X-Gitea-Token validation failed")
-	ErrEventNotFound                = errors.New("event not defined to be parsed")
-	ErrParsingPayload               = errors.New("error parsing payload")
-	ErrParsingSystemPayload         = errors.New("error parsing system payload")
+	ErrEventNotSpecifiedToParse    = errors.New("no Event specified to parse")
+	ErrInvalidHTTPMethod           = errors.New("invalid HTTP Method")
+	ErrMissingGiteaEventHeader     = errors.New("missing X-Gitea-Event Header")
+	ErrMissingGiteaSignatureHeader = errors.New("missing X-Gitea-Signature Header")
+	ErrHMACVerificationFailed      = errors.New("X-Gitea-Signature is invalid")
+	//ErrGiteaTokenVerificationFailed = errors.New("X-Gitea-Token validation failed")
+	ErrEventNotFound        = errors.New("event not defined to be parsed")
+	ErrParsingPayload       = errors.New("error parsing payload")
+	ErrParsingSystemPayload = errors.New("error parsing system payload")
 )
 
 /*
@@ -132,35 +137,16 @@ func (hook Webhook) Parse(r *http.Request, events ...Event) (interface{}, error)
 		return nil, ErrInvalidHTTPMethod
 	}
 
-	// If we have a Secret set, we should check the MAC
-	if len(hook.secret) > 0 {
-		signature := r.Header.Get("X-Gitea-Token")
-		if signature != hook.secret {
-			return nil, ErrGiteaTokenVerificationFailed
-		}
-	}
-
 	event := r.Header.Get("X-Gitea-Event")
 	if len(event) == 0 {
 		return nil, ErrMissingGiteaEventHeader
 	}
 
-	GiteaEvent := Event(event)
-
-	payload, err := ioutil.ReadAll(r.Body)
-	if err != nil || len(payload) == 0 {
-		return nil, ErrParsingPayload
-	}
-
-	return eventParsing(GiteaEvent, events, payload)
-}
-
-func eventParsing(GiteaEvent Event, events []Event, payload []byte) (interface{}, error) {
-	fmt.Println("--- --- Hook eventParsing --- ---")
+	giteaEvent := Event(event)
 
 	var found bool
 	for _, evt := range events {
-		if evt == GiteaEvent {
+		if evt == giteaEvent {
 			found = true
 			break
 		}
@@ -170,7 +156,34 @@ func eventParsing(GiteaEvent Event, events []Event, payload []byte) (interface{}
 		return nil, ErrEventNotFound
 	}
 
-	switch GiteaEvent {
+	payload, err := ioutil.ReadAll(r.Body)
+	if err != nil || len(payload) == 0 {
+		return nil, ErrParsingPayload
+	}
+
+	// If we have a Secret set, we should check the MAC
+	if len(hook.secret) > 0 {
+		signature := r.Header.Get("X-Gitea-Signature")
+		if len(signature) == 0 {
+			return nil, ErrMissingGiteaSignatureHeader
+		}
+
+		mac := hmac.New(sha256.New, []byte(hook.secret))
+		_, _ = mac.Write(payload)
+
+		expectedMAC := hex.EncodeToString(mac.Sum(nil))
+
+		fmt.Println("signature: ", signature)
+		fmt.Println("expectedMAC: ", expectedMAC)
+
+		if !hmac.Equal([]byte(signature), []byte(expectedMAC)) {
+			return nil, ErrHMACVerificationFailed
+		}
+	}
+
+	fmt.Println("--- --- Hook eventParsing --- ---")
+
+	switch giteaEvent {
 	case CreateEvents:
 		var pl CreatePayload
 		err := json.Unmarshal([]byte(payload), &pl)
@@ -217,6 +230,6 @@ func eventParsing(GiteaEvent Event, events []Event, payload []byte) (interface{}
 		return pl, err
 
 	default:
-		return nil, fmt.Errorf("unknown event %s", GiteaEvent)
+		return nil, fmt.Errorf("unknown event %s", giteaEvent)
 	}
 }
